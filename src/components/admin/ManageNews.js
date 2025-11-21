@@ -16,8 +16,12 @@ const ManageNews = () => {
   const fetchNews = async () => {
     try {
       setLoading(true);
-      const response = await newsService.getAllNews({ limit: 100, isPublished: undefined });
-      setNews(response.data.news || []);
+      const { news: newsList } = await newsService.getAllNews({
+      limit: 1000,
+      isPublished: undefined,
+      });
+
+setNews(newsList || []);
     } catch (error) {
       toast.error('Error al cargar las noticias');
     } finally {

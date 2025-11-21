@@ -1,9 +1,7 @@
+// src/components/admin/Dashboard.js
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import newsService from '../../services/newsService';
-import categoryService from '../../services/categoryService';
 import scraperService from '../../services/scraperService';
-import exportService from '../../services/exportService';
 import { toast } from 'react-toastify';
 
 const Dashboard = () => {
@@ -25,20 +23,20 @@ const Dashboard = () => {
     try {
       setLoading(true);
 
-      const [newsResponse, categoriesResponse, scraperStats] = await Promise.all([
-        newsService.getAllNews({ limit: 1 }),
-        categoryService.getAllCategories(),
-        scraperService.getStats(),
-      ]);
+      // Llamamos SOLO al endpoint /api/scraper/stats
+      const response = await scraperService.getStats();
+      // scraperService.getStats devuelve response.data del backend:
+      // { success: true, data: { totalNews, totalOriginal, totalScraped, totalCategories, ... } }
+      const data = response?.data || {};
 
       setStats({
-        totalNews: newsResponse.data.pagination.total,
-        totalCategories: categoriesResponse.data.length,
-        scrapedNews: scraperStats.data.totalScraped,
-        originalNews: scraperStats.data.totalOriginal,
+        totalNews: data.totalNews ?? 0,
+        totalCategories: data.totalCategories ?? 0,
+        scrapedNews: data.totalScraped ?? 0,
+        originalNews: data.totalOriginal ?? 0,
       });
     } catch (error) {
-      console.error(error);
+      console.error('Error cargando estadísticas:', error);
       toast.error('Error al cargar estadísticas');
     } finally {
       setLoading(false);
@@ -48,63 +46,54 @@ const Dashboard = () => {
   const handleRunScraping = async () => {
     try {
       setScraping(true);
-      toast.info('Iniciando scraping... Esto puede tomar un momento');
+      toast.info('Iniciando scraping... Esto puede tomar un momento...');
+
+      // /api/scraper/run
       const response = await scraperService.runScraping();
-      toast.success(`Scraping completado: ${response.data.newsScraped} noticias nuevas`);
-      fetchStats(); // Actualizar estadísticas
+      // scraperService.runScraping devuelve response.data del backend:
+      // { success: true, message, data: { totalNews, ... } }
+      const totalNew =
+        response?.data?.totalNews ??
+        response?.data?.newsScraped ??
+        0;
+
+      toast.success(`Scraping completado: ${totalNew} noticias nuevas`);
+      await fetchStats(); // refrescar tarjetas
     } catch (error) {
-      console.error(error);
+      console.error('Error al ejecutar scraping:', error);
       toast.error('Error al ejecutar scraping');
     } finally {
       setScraping(false);
     }
   };
 
-  // Helper para descargar blobs como archivo
-  const downloadBlob = (blob, filename) => {
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
-  };
-
-  const handleDownloadNewsCsv = async () => {
+  const downloadCsv = async (type) => {
     try {
-      toast.info('Preparando descarga de noticias...');
-      const blob = await exportService.exportNews();
-      downloadBlob(blob, `noticias_${Date.now()}.csv`);
-      toast.success('Noticias exportadas correctamente');
-    } catch (error) {
-      console.error(error);
-      toast.error('Error al exportar noticias');
-    }
-  };
+      const token = localStorage.getItem('token');
+      const baseUrl = process.env.REACT_APP_API_URL; // ej: http://3.238.117.85:5000/api
+      const url = `${baseUrl}/export/${type}`;
 
-  const handleDownloadStatsCsv = async () => {
-    try {
-      toast.info('Preparando descarga de estadísticas...');
-      const blob = await exportService.exportStats();
-      downloadBlob(blob, `estadisticas_${Date.now()}.csv`);
-      toast.success('Estadísticas exportadas correctamente');
-    } catch (error) {
-      console.error(error);
-      toast.error('Error al exportar estadísticas');
-    }
-  };
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+        },
+      });
 
-  const handleDownloadCategoriesCsv = async () => {
-    try {
-      toast.info('Preparando descarga de categorías...');
-      const blob = await exportService.exportCategories();
-      downloadBlob(blob, `categorias_${Date.now()}.csv`);
-      toast.success('Categorías exportadas correctamente');
+      if (!res.ok) throw new Error('Error descargando CSV');
+
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `${type}_${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
     } catch (error) {
-      console.error(error);
-      toast.error('Error al exportar categorías');
+      console.error('Error descargando CSV:', error);
+      toast.error('Error al descargar CSV');
     }
   };
 
@@ -130,8 +119,12 @@ const Dashboard = () => {
               <span className="text-3xl">📰</span>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Noticias</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.totalNews}</p>
+              <p className="text-sm font-medium text-gray-500">
+                Total Noticias
+              </p>
+              <p className="text-2xl font-bold text-gray-900">
+                {stats.totalNews}
+              </p>
             </div>
           </div>
         </div>
@@ -142,8 +135,12 @@ const Dashboard = () => {
               <span className="text-3xl">✍️</span>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Noticias Propias</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.originalNews}</p>
+              <p className="text-sm font-medium text-gray-500">
+                Noticias Propias
+              </p>
+              <p className="text-2xl font-bold text-gray-900">
+                {stats.originalNews}
+              </p>
             </div>
           </div>
         </div>
@@ -154,8 +151,12 @@ const Dashboard = () => {
               <span className="text-3xl">🕷️</span>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Noticias Scrapeadas</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.scrapedNews}</p>
+              <p className="text-sm font-medium text-gray-500">
+                Noticias Scrapeadas
+              </p>
+              <p className="text-2xl font-bold text-gray-900">
+                {stats.scrapedNews}
+              </p>
             </div>
           </div>
         </div>
@@ -166,8 +167,12 @@ const Dashboard = () => {
               <span className="text-3xl">📂</span>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Categorías</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.totalCategories}</p>
+              <p className="text-sm font-medium text-gray-500">
+                Categorías
+              </p>
+              <p className="text-2xl font-bold text-gray-900">
+                {stats.totalCategories}
+              </p>
             </div>
           </div>
         </div>
@@ -182,8 +187,12 @@ const Dashboard = () => {
           <div className="flex items-center">
             <span className="text-4xl mr-4">➕</span>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Crear Noticia</h3>
-              <p className="text-sm text-gray-500">Agregar nueva noticia manualmente</p>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Crear Noticia
+              </h3>
+              <p className="text-sm text-gray-500">
+                Agregar nueva noticia manualmente
+              </p>
             </div>
           </div>
         </Link>
@@ -195,8 +204,12 @@ const Dashboard = () => {
           <div className="flex items-center">
             <span className="text-4xl mr-4">📝</span>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Gestionar Noticias</h3>
-              <p className="text-sm text-gray-500">Ver y editar todas las noticias</p>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Gestionar Noticias
+              </h3>
+              <p className="text-sm text-gray-500">
+                Ver y editar todas las noticias
+              </p>
             </div>
           </div>
         </Link>
@@ -208,18 +221,23 @@ const Dashboard = () => {
           <div className="flex items-center">
             <span className="text-4xl mr-4">📂</span>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Gestionar Categorías</h3>
-              <p className="text-sm text-gray-500">Administrar categorías de noticias</p>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Gestionar Categorías
+              </h3>
+              <p className="text-sm text-gray-500">
+                Administrar categorías de noticias
+              </p>
             </div>
           </div>
         </Link>
       </div>
 
-      {/* Scraping */}
+      {/* Web Scraping */}
       <div className="mt-8 bg-white rounded-lg shadow-md p-6">
         <h2 className="text-xl font-bold text-gray-900 mb-4">Web Scraping</h2>
         <p className="text-gray-600 mb-4">
-          Ejecuta el scraping manualmente para obtener las últimas noticias de fuentes externas.
+          Ejecuta el scraping manualmente para obtener las últimas noticias de
+          fuentes externas.
         </p>
         <button
           onClick={handleRunScraping}
@@ -238,22 +256,22 @@ const Dashboard = () => {
         </p>
         <div className="flex flex-wrap gap-4">
           <button
-            onClick={handleDownloadNewsCsv}
-            className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg transition inline-flex items-center"
+            onClick={() => downloadCsv('news')}
+            className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg transition inline-block"
           >
             📊 Descargar Noticias (CSV)
           </button>
 
           <button
-            onClick={handleDownloadStatsCsv}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition inline-flex items-center"
+            onClick={() => downloadCsv('stats')}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition inline-block"
           >
             📈 Descargar Estadísticas (CSV)
           </button>
 
           <button
-            onClick={handleDownloadCategoriesCsv}
-            className="bg-yellow-600 hover:bg-yellow-700 text-white px-6 py-3 rounded-lg transition inline-flex items-center"
+            onClick={() => downloadCsv('categories')}
+            className="bg-yellow-600 hover:bg-yellow-700 text-white px-6 py-3 rounded-lg transition inline-block"
           >
             📂 Descargar Categorías (CSV)
           </button>

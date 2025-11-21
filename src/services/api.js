@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // URL del backend
-const API_URL = 'http://3.238.117.85:5000/api';
+const API_URL = 'http://34.239.174.69:5000/api';
 
 // Crear instancia de axios
 const api = axios.create({
